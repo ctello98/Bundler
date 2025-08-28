@@ -1,0 +1,87 @@
+﻿@page "/wallets"
+@using Bundler.Services
+@inject WalletService WalletService
+@inject SolanaService SolanaService
+
+<h3>Wallet Manager</h3>
+
+<input @bind="newName" placeholder="Wallet name" />
+<textarea @bind="keyInput"
+          placeholder="Paste your Base58 secret key here"
+          style="width:100%;height:4em"></textarea>
+<button @onclick="AddWalletFromString">Add Wallet</button>
+
+<table class="table">
+    <thead>
+        <tr>
+            <th>Name</th>
+            <th>Balance (SOL)</th>
+            <th>Actions</th>
+        </tr>
+    </thead>
+    <tbody>
+        @foreach (var item in _walletsWithBalance)
+        {
+            <tr>
+                <td>@item.Record.Name</td>
+                <td>@item.Balance:F6</td>
+                <td>
+                    <button @onclick="() => Delete(item.Record.Id)">
+                        Delete
+                    </button>
+                </td>
+            </tr>
+        }
+    </tbody>
+</table>
+
+@code {
+    private string newName = string.Empty;
+    private string keyInput = string.Empty;
+
+    // Holds the raw DB records
+    private List<WalletRecord> _wallets = new();
+
+    // Tuple of record + its latest balance
+    private List<(WalletRecord Record, decimal Balance)> _walletsWithBalance
+      = new();
+
+    protected override async Task OnInitializedAsync()
+    {
+        _wallets = WalletService.GetAll().ToList();
+        await LoadBalances();
+    }
+
+    private async Task LoadBalances()
+    {
+        _walletsWithBalance.Clear();
+        foreach (var w in _wallets)
+        {
+            var acc = WalletService.LoadAccount(w.Id);
+            var resp = await SolanaService.RpcClient
+                                      .GetBalanceAsync(acc.PublicKey);
+            decimal sol = resp.Result.Value / 1_000_000_000m;
+            _walletsWithBalance.Add((w, sol));
+        }
+        StateHasChanged();
+    }
+
+    private void Delete(int id)
+    {
+        WalletService.Delete(id);
+        _wallets = WalletService.GetAll().ToList();
+        _ = LoadBalances();
+    }
+
+    private void AddWalletFromString()
+    {
+        if (string.IsNullOrWhiteSpace(newName) ||
+            string.IsNullOrWhiteSpace(keyInput))
+            return;
+
+        WalletService.Add(newName, keyInput.Trim());
+        newName = keyInput = string.Empty;
+        _wallets = WalletService.GetAll().ToList();
+        _ = LoadBalances();
+    }
+}

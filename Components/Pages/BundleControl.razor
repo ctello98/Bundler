@@ -1,0 +1,45 @@
+﻿@page "/bundle"
+@using Bundler.Services
+@inject WalletService WalletService
+@inject BotService BotService
+
+<h3>Bundle Control</h3>
+
+<select @bind="selectedMint">
+    <option value="">Select Token Mint</option>
+    <!-- Add known or user-provided mints -->
+</select>
+
+<label>Amount per Wallet (SOL):</label>
+<input type="number" step="0.000001" @bind="amount" />
+<label>Slippage %:</label>
+<input type="number" @bind="slippage" />
+
+<button @onclick="BuyAll">Buy with All</button>
+<button @onclick="SellAll">Sell All</button>
+
+@code {
+    private string selectedMint = string.Empty;
+    private decimal amount = 0.01m;
+    private int slippage = 5;
+
+    async Task BuyAll()
+    {
+        foreach (var w in WalletService.GetAll())
+        {
+            var acct = WalletService.LoadAccount(w.Id);
+            await BotService.BuyAsync(
+              acct, selectedMint, amount, slippage);
+        }
+    }
+
+    async Task SellAll()
+    {
+        foreach (var w in WalletService.GetAll())
+        {
+            var acct = WalletService.LoadAccount(w.Id);
+            // TODO: fetch token balance per wallet
+            await BotService.SellAsync(acct, selectedMint, 0m);
+        }
+    }
+}

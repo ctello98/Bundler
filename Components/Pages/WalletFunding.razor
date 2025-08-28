@@ -1,0 +1,90 @@
+﻿@page "/funding"
+@using Bundler.Services
+@using Solnet.Wallet
+@using System.Text.Json
+@inject WalletService WalletService
+@inject FundingService FundingService
+
+<h3>Wallet Funding & Balances</h3>
+
+<label>Primary Wallet:</label>
+<select @bind="primaryId">
+    <option value="">Select...</option>
+    @foreach (var w in wallets)
+    {
+        <option value="@w.Id">@w.Name</option>
+    }
+</select>
+
+<label>Number of New Wallets:</label>
+<input type="number" @bind="newCount" />
+
+<label>Amount per Wallet (SOL):</label>
+<input type="number" step="0.000001" @bind="amountPerWallet" />
+
+<button @onclick="GenerateAndFund">Generate & Fund</button>
+
+@if (!string.IsNullOrEmpty(resultMessage))
+{
+    <p>@resultMessage</p>
+}
+
+<h4>Balances</h4>
+<ul>
+    @foreach (var kv in balances)
+    {
+        <li>@kv.Key: @kv.Value:F6 SOL</li>
+    }
+</ul>
+
+<button @onclick="ExportAll">Export Wallets JSON</button>
+<pre>@exportJson</pre>
+
+@code {
+    private IEnumerable<WalletRecord> wallets = Enumerable.Empty<WalletRecord>();
+    private int? primaryId;
+    private int newCount;
+    private decimal amountPerWallet = 0.1m;
+    private string resultMessage = string.Empty;
+    private Dictionary<string, decimal> balances = new Dictionary<string, decimal>();
+    private string exportJson = string.Empty;
+
+    protected override void OnInitialized()
+    {
+        wallets = WalletService.GetAll();
+    }
+
+    private async Task GenerateAndFund()
+    {
+        if (primaryId == null) return;
+        var primary = WalletService.LoadAccount(primaryId.Value);
+        var newAccounts = new List<Account>();
+        for (int i = 0; i < newCount; i++)
+        {
+            var acc = new Account();
+            var combined = acc.PrivateKey.Key.Concat(acc.PublicKey.Key).ToArray();
+            WalletService.Add($"Generated_{acc.PublicKey}", JsonSerializer.Serialize(combined));
+            newAccounts.Add(acc);
+        }
+        var (totalTx, totalFees) = await FundingService.FundWalletsAsync(
+            primary, newAccounts, amountPerWallet);
+        resultMessage = $"Transferred {totalTx:F6} SOL + fees {totalFees:F6} SOL";
+        await RefreshBalances();
+    }
+
+    private async Task RefreshBalances()
+    {
+        balances.Clear();
+        foreach (var w in WalletService.GetAll())
+        {
+            var acc = WalletService.LoadAccount(w.Id);
+            var resp = await FundingService._sol.RpcClient.GetBalanceAsync(acc.PublicKey);
+            balances[w.Name] = resp.Result.Value / 1_000_000_000m;
+        }
+    }
+
+    private void ExportAll()
+    {
+        exportJson = WalletService.ExportAllJson();
+    }
+}

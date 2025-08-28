@@ -1,0 +1,56 @@
+﻿@page "/bot"
+@using Bundler.Services
+@using Quartz
+@inject ISchedulerFactory SchedulerFactory
+
+<h3>Bot Scheduler</h3>
+
+<label>Cron Expression:</label>
+<input @bind="cronExpr" placeholder="e.g. 0 0/5 * * * ?" />
+<button @onclick="ScheduleJob">Schedule Periodic Buy</button>
+
+@code {
+    private string cronExpr = string.Empty;
+
+    async Task ScheduleJob()
+    {
+        var scheduler = await SchedulerFactory.GetScheduler();
+        var job = JobBuilder.Create<BuyJob>()
+          .WithIdentity("buyJob", "pump")
+          .UsingJobData("mint", "")
+          .UsingJobData("amount", 0.01f)
+          .UsingJobData("slippage", 5)
+          .Build();
+        var trigger = TriggerBuilder.Create()
+          .WithCronSchedule(cronExpr)
+          .Build();
+        await scheduler.ScheduleJob(job, trigger);
+    }
+
+    public class BuyJob : IJob
+    {
+        private readonly WalletService _walletService;
+        private readonly BotService _botService;
+
+        public BuyJob(
+          WalletService walletService,
+          BotService botService)
+        {
+            _walletService = walletService;
+            _botService = botService;
+        }
+
+        public async Task Execute(IJobExecutionContext context)
+        {
+            var mint = context.MergedJobDataMap.GetString("mint")!;
+            var amount = context.MergedJobDataMap.GetDouble("amount");
+            var slippage = context.MergedJobDataMap.GetInt("slippage");
+            foreach (var w in _walletService.GetAll())
+            {
+                var acct = _walletService.LoadAccount(w.Id);
+                await _botService.BuyAsync(
+                  acct, mint, Convert.ToDecimal(amount), slippage);
+            }
+        }
+    }
+}
